@@ -172,7 +172,8 @@ impl Channel {
             cmd.arg("-c")
                 .arg(sc)
                 .env("CHZZKD_ALIAS", self.to_string())
-                .env("CHZZKD_LIVE_TITLE", title);
+                .env("CHZZKD_LIVE_TITLE", title)
+                .env("CHZZKD_ID", &self.id);
 
             if let Transition::WentOpen { recovered } = tr {
                 cmd.env("CHZZKD_RECOVERED", if recovered { "1" } else { "0" });
