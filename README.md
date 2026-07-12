@@ -66,6 +66,12 @@ git clone https://github.com/dilluti0n/chzzkd
 cd chzzkd
 cargo install --path .
 chzzkd < config.toml
+
+# Run as daemon
+RUST_LOG=info setsid chzzkd < config.toml >/dev/null 2>chzzkd.log
+
+# Stop daemon
+pkill chzzkd
 ```
 
 Currently, configuration is read from stdin. The first release will
