@@ -19,12 +19,45 @@ enum Status {
     Unknown,
 }
 
-enum Transition {
-    WentOpen,
-    WentClose,
-    RecoveredOpen,
-    /// self-loop or unknown involved
-    Nop(Status, Status),
+macro_rules! define_hooks {
+    (
+        enum $ename:ident {
+            $( $var:ident $( { $($f:tt)* } )? => $field:ident, )*
+        }
+        passthrough {
+            $( $extra:tt )*
+        }
+    ) => {
+        enum $ename {
+            $( $var $( { $($f)* } )? , )*
+            $( $extra )*
+        }
+
+        #[derive(Debug, Default)]
+        struct Hooks {
+            $( $field: Option<String>, )*
+        }
+
+        impl Hooks {
+            fn script(&self, t: &$ename) -> Option<&str> {
+                #[allow(unreachable_patterns)]
+                match t {
+                    $( $ename::$var { .. } => self.$field.as_deref(), )*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+define_hooks! {
+    enum Transition {
+        WentOpen { recovered: bool } => went_open,
+        WentClose => went_close,
+    }
+    passthrough {
+        Nop { prev: Status, curr: Status },
+    }
 }
 
 impl Status {
@@ -33,12 +66,12 @@ impl Status {
         use Transition::*;
 
         match (prev, self) {
-            (Close, Open) => WentOpen,
-            (Unknown, Open) => RecoveredOpen,
+            (Close, Open) => WentOpen { recovered: false },
+            (Unknown, Open) => WentOpen { recovered: true },
             (Open, Close) => WentClose,
 
             // no useful information given to user
-            (_, _) => Nop(prev, self),
+            (_, _) => Nop { prev, curr: self },
         }
     }
 }
@@ -77,13 +110,13 @@ impl Channel {
             .await
     }
 
-    pub async fn event_loop(&self, client: &reqwest::Client, timeout: u64) {
+    pub async fn event_loop(&self, client: &reqwest::Client, timeout: u64, hooks: &Hooks) {
         // Receive notifications for already opened broadcasts when first run
         let mut prev = Status::Close;
         let mut errs = 0;
 
         loop {
-            (prev, errs) = self.tick(client, prev, errs).await;
+            (prev, errs) = self.tick(client, prev, errs, &hooks).await;
             let phase = jittered(timeout, errs);
             debug!("{self}: sleep for {phase:?}");
             tokio::time::sleep(phase).await;
@@ -92,7 +125,7 @@ impl Channel {
 
     async fn tick(
         &self,
-        client: &reqwest::Client, prev: Status, errs: u32
+        client: &reqwest::Client, prev: Status, errs: u32, hooks: &Hooks
     ) -> (Status, u32) {
         match self.fetch(client).await {
             Ok(res) => {
@@ -102,7 +135,7 @@ impl Channel {
                     None => return (prev, errs)
                 };
 
-                self.event(prev, &content);
+                self.event(prev, &content, hooks);
 
                 (content.status, 0)
             }
@@ -115,23 +148,32 @@ impl Channel {
         }
     }
 
-    fn event(&self, prev: Status, content: &PollResContent) {
-        match content.status.transition_from(prev) {
-            Transition::WentOpen | Transition::RecoveredOpen => {
-                info!("{self}: WentOpen: {}", content.live_title.as_deref().unwrap_or("None"));
+    fn event(&self, prev: Status, content: &PollResContent, hooks: &Hooks) {
+        let tr = content.status.transition_from(prev);
+        let title = content.live_title.as_deref().unwrap_or("None");
+        match tr {
+            Transition::WentOpen { recovered } => {
+                if recovered {
+                    warn!("{self}: open from unknown state: {title}");
+                }
+                info!("{self}: WentOpen: {title}");
             },
             Transition::WentClose => {
-                info!("{self}: WentClose: {}", content.live_title.as_deref().unwrap_or("None"));
+                info!("{self}: WentClose: {title}");
             },
-            Transition::Nop(prev, curr) => {
+            Transition::Nop { prev, curr } => {
                 trace!("{self}: Nop: {prev:?} => {curr:?}");
             }
+        }
+        if let Some(sc) = hooks.script(&tr) {
+            info!("{self}: {}", sc);
         }
     }
 }
 
 struct Config {
     timeout: u64,
+    hooks: Hooks,
     channel: Vec<Channel>,
 }
 
@@ -149,7 +191,7 @@ async fn watch(cfg: Arc<Config>, idx: usize, client: reqwest::Client) {
     let phase = Duration::from_secs_f64(rand::rng().random_range(0.0..cfg.timeout as f64));
 
     sleep(phase).await;
-    ch.event_loop(&client, cfg.timeout).await;
+    ch.event_loop(&client, cfg.timeout, &cfg.hooks).await;
 }
 
 #[tokio::main]
@@ -162,6 +204,10 @@ async fn main() -> anyhow::Result<()> {
 
     let cfg = Config {
         timeout: 10,
+        hooks: Hooks {
+            went_open: Some("echo abc".into()),
+            ..Default::default()
+        },
         channel: vec![
             Channel {
                 id: "c847a58a1599988f6154446c75366523".into(),
