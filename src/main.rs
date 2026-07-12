@@ -33,7 +33,7 @@ macro_rules! define_hooks {
             $( $extra )*
         }
 
-        #[derive(Debug, Default)]
+        #[derive(Debug, Default, Deserialize)]
         struct Hooks {
             $( $field: Option<String>, )*
         }
@@ -83,6 +83,7 @@ struct PollResContent {
     status: Status
 }
 
+#[derive(Deserialize)]
 struct Channel {
     id: String,
     alias: Option<String>,
@@ -189,10 +190,17 @@ impl Channel {
     }
 }
 
+#[derive(Deserialize)]
 struct Config {
+    #[serde(default = "default_timeout")]
     timeout: u64,
+    #[serde(default)]
     hooks: Hooks,
     channel: Vec<Channel>,
+}
+
+fn default_timeout() -> u64 {
+    10
 }
 
 fn jittered(timeout: u64, errs: u32) -> Duration {
@@ -220,72 +228,13 @@ async fn main() -> anyhow::Result<()> {
         .user_agent("Mozilla/5.0")
         .build()?;
 
-    let cfg = Config {
-        timeout: 10,
-        hooks: Hooks {
-            went_open: Some("echo $CHZZKD_ALIAS: $CHZZKD_LIVE_TITLE; sleep 9999".into()),
-            ..Default::default()
-        },
-        channel: vec![
-            Channel {
-                id: "c847a58a1599988f6154446c75366523".into(),
-                alias: Some("dopa".into())
-            },
-            Channel {
-                id: "a7e175625fdea5a7d98428302b7aa57f".into(),
-                alias: Some("chamcham".into())
-            },
-            Channel {
-                id: "6e06f5e1907f17eff543abd06cb62891".into(),
-                alias: Some("nokduro".into())
-            },
-            Channel {
-                id: "9381e7d6816e6d915a44a13c0195b202".into(),
-                alias: Some("lck".into())
-            },
-            Channel {
-                id: "0b33823ac81de48d5b78a38cdbc0ab94".into(),
-                alias: Some("wolf".into())
-            },
-            Channel {
-                id: "42597020c1a79fb151bd9b9beaa9779b".into(),
-                alias: Some("paka".into())
-            },
-            Channel {
-                id: "26ae7850ad5b6b09ca864d482dc7fa50".into(),
-                alias: Some("qb".into())
-            },
-            Channel {
-                id: "c100f81959d1c17044be0541eed56f5b".into(),
-                alias: Some("megajw".into())
-            },
-            Channel {
-                id: "b5ed5db484d04faf4d150aedd362f34b".into(),
-                alias: Some("gg".into())
-            },
-            Channel {
-                id: "8b3e8e3a13201cff0836c69cfab62f45".into(),
-                alias: Some("flame".into())
-            },
-            Channel {
-                id: "6cac96d5c9b7a9fd28903aa32fc61749".into(),
-                alias: Some("hd".into())
-            },
-            Channel {
-                id: "bc2dbff369307b5c446224cce192c8b1".into(),
-                alias: Some("goarosa".into())
-            },
-            Channel {
-                id: "732f6f16d20991243ec3f2d7afed8821".into(),
-                alias: Some("0du".into())
-            },
-            Channel {
-                id: "96e44e40a448971244bfd9dd8c832505".into(),
-                alias: Some("gn".into())
-            },
-        ],
+    let cfg = {
+        use std::io::Read;
+
+        let mut s = String::new();
+        std::io::stdin().read_to_string(&mut s)?;
+        Arc::new(toml::from_str::<Config>(&s)?)
     };
-    let cfg = Arc::new(cfg);
 
     let mut tasks = Vec::new();
 
@@ -298,4 +247,108 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_config() -> Config {
+        Config {
+            timeout: 10,
+            hooks: Hooks {
+                went_open: Some("echo $CHZZKD_ALIAS: $CHZZKD_LIVE_TITLE".into()),
+                ..Default::default()
+            },
+            channel: vec![
+                Channel {
+                    id: "c847a58a1599988f6154446c75366523".into(),
+                    alias: Some("dopa".into())
+                },
+                Channel {
+                    id: "a7e175625fdea5a7d98428302b7aa57f".into(),
+                    alias: Some("chamcham".into())
+                },
+                Channel {
+                    id: "6e06f5e1907f17eff543abd06cb62891".into(),
+                    alias: Some("nokduro".into())
+                },
+                Channel {
+                    id: "9381e7d6816e6d915a44a13c0195b202".into(),
+                    alias: Some("lck".into())
+                },
+                Channel {
+                    id: "0b33823ac81de48d5b78a38cdbc0ab94".into(),
+                    alias: Some("wolf".into())
+                },
+                Channel {
+                    id: "42597020c1a79fb151bd9b9beaa9779b".into(),
+                    alias: Some("paka".into())
+                },
+                Channel {
+                    id: "26ae7850ad5b6b09ca864d482dc7fa50".into(),
+                    alias: Some("qb".into())
+                },
+                Channel {
+                    id: "c100f81959d1c17044be0541eed56f5b".into(),
+                    alias: Some("megajw".into())
+                },
+                Channel {
+                    id: "b5ed5db484d04faf4d150aedd362f34b".into(),
+                    alias: Some("gg".into())
+                },
+                Channel {
+                    id: "8b3e8e3a13201cff0836c69cfab62f45".into(),
+                    alias: Some("flame".into())
+                },
+                Channel {
+                    id: "6cac96d5c9b7a9fd28903aa32fc61749".into(),
+                    alias: Some("hd".into())
+                },
+                Channel {
+                    id: "bc2dbff369307b5c446224cce192c8b1".into(),
+                    alias: Some("goarosa".into())
+                },
+                Channel {
+                    id: "732f6f16d20991243ec3f2d7afed8821".into(),
+                    alias: Some("0du".into())
+                },
+                Channel {
+                    id: "96e44e40a448971244bfd9dd8c832505".into(),
+                    alias: Some("gn".into())
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn toml_parses() {
+        let cfg: Config = toml::from_str(r#"
+            [[channel]]
+            id = "abc"
+            alias = "x"
+
+            [[channel]]
+            id = "def"
+        "#).unwrap();
+
+        assert_eq!(cfg.timeout, default_timeout());
+        assert!(cfg.hooks.went_open.is_none());
+        assert_eq!(cfg.channel.len(), 2);
+    }
+
+    #[tokio::test]
+    #[ignore] // do API request
+    async fn live_tick() {
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0")
+            .build().unwrap();
+
+        let cfg = sample_config();
+        for ch in &cfg.channel {
+            let (status, errs) = ch.tick(&client, Status::Close, 0, &cfg.hooks).await;
+            assert_eq!(errs, 0, "{ch}: fetch failed");
+            assert_ne!(status, Status::Unknown, "{ch}: unknown status");
+        }
+    }
 }
