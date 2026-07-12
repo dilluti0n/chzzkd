@@ -41,6 +41,42 @@ impl fmt::Display for Channel {
     }
 }
 
+impl Channel {
+    async fn fetch(&self, client: &reqwest::Client) -> Result<PollRes, reqwest::Error> {
+        let id = &self.id;
+        let url = format!("https://api.chzzk.naver.com/polling/v2/channels/{id}/live-status");
+
+        client.get(&url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await
+    }
+
+    pub async fn event_loop(&self, client: &reqwest::Client, timeout: u64) {
+        use tokio::time::sleep;
+
+        let name = self.to_string();
+        let mut errs = 0u32;
+
+        loop {
+            match self.fetch(&client).await {
+                Ok(res) => {
+                    trace!("{name}: {res:?}");
+                }
+                Err(e) => {
+                    errs = errs.saturating_add(1);
+                    warn!("{name}: fetch failed (x{errs}): {e:#}");
+                }
+            }
+            let phase = jittered(timeout, errs);
+            debug!("{name}: sleep for {phase:?}");
+            sleep(phase).await;
+        }
+    }
+}
+
 struct Config {
     timeout: u64,
     channel: Vec<Channel>,
@@ -53,42 +89,14 @@ fn jittered(timeout: u64, errs: u32) -> Duration {
     Duration::from_secs_f64(secs)
 }
 
-async fn fetch(client: &reqwest::Client, ch: &Channel) -> Result<PollRes, reqwest::Error> {
-    let id = &ch.id;
-    let url = format!("https://api.chzzk.naver.com/polling/v2/channels/{id}/live-status");
-
-    client.get(&url)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await
-}
-
 async fn watch(cfg: Arc<Config>, idx: usize, client: reqwest::Client) {
     use tokio::time::sleep;
 
     let ch = &cfg.channel[idx];
-    let name = ch.to_string();
     let phase = Duration::from_secs_f64(rand::rng().random_range(0.0..cfg.timeout as f64));
 
     sleep(phase).await;
-
-    let mut errs = 0u32;
-    loop {
-        match fetch(&client, ch).await {
-            Ok(res) => {
-                trace!("{name}: {res:?}");
-            }
-            Err(e) => {
-                errs = errs.saturating_add(1);
-                warn!("{name}: fetch failed (x{errs}): {e:#}");
-            }
-        }
-        let phase = jittered(cfg.timeout, errs);
-        debug!("{name}: sleep for {phase:?}");
-        sleep(phase).await;
-    }
+    ch.event_loop(&client, cfg.timeout).await;
 }
 
 #[tokio::main]
