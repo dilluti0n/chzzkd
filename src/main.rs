@@ -150,7 +150,7 @@ impl Channel {
 
     fn event(&self, prev: Status, content: &PollResContent, hooks: &Hooks) {
         let tr = content.status.transition_from(prev);
-        let title = content.live_title.as_deref().unwrap_or("None");
+        let title = content.live_title.as_deref().unwrap_or("");
         match tr {
             Transition::WentOpen { recovered } => {
                 if recovered {
@@ -165,8 +165,26 @@ impl Channel {
                 trace!("{self}: Nop: {prev:?} => {curr:?}");
             }
         }
+
         if let Some(sc) = hooks.script(&tr) {
-            info!("{self}: {}", sc);
+            let mut cmd = tokio::process::Command::new("/bin/sh");
+            cmd.arg("-c")
+                .arg(sc)
+                .env("CHZZKD_ALIAS", self.to_string())
+                .env("CHZZKD_LIVE_TITLE", title);
+
+            if let Transition::WentOpen { recovered } = tr {
+                cmd.env("CHZZKD_RECOVERED", if recovered { "1" } else { "0" });
+            }
+
+            // Here tokio runtime simply forks/execs and reaps it at
+            // poll loop later. i.e. if the script runs in an infinite
+            // loop, it will just run forever in the forked process,
+            // and chzzkd cannot detect it.
+            match cmd.spawn() {
+                Ok(_child) => {}
+                Err(e) => warn!("{self}: hook spawn failed: {e}"),
+            }
         }
     }
 }
@@ -205,7 +223,7 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Config {
         timeout: 10,
         hooks: Hooks {
-            went_open: Some("echo abc".into()),
+            went_open: Some("echo $CHZZKD_ALIAS: $CHZZKD_LIVE_TITLE; sleep 9999".into()),
             ..Default::default()
         },
         channel: vec![
