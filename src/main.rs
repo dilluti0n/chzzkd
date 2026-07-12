@@ -118,6 +118,46 @@ async fn main() -> anyhow::Result<()> {
                 id: "9381e7d6816e6d915a44a13c0195b202".into(),
                 alias: Some("lck".into())
             },
+            Channel {
+                id: "0b33823ac81de48d5b78a38cdbc0ab94".into(),
+                alias: Some("wolf".into())
+            },
+            Channel {
+                id: "42597020c1a79fb151bd9b9beaa9779b".into(),
+                alias: Some("paka".into())
+            },
+            Channel {
+                id: "26ae7850ad5b6b09ca864d482dc7fa50".into(),
+                alias: Some("qb".into())
+            },
+            Channel {
+                id: "c100f81959d1c17044be0541eed56f5b".into(),
+                alias: Some("megajw".into())
+            },
+            Channel {
+                id: "b5ed5db484d04faf4d150aedd362f34b".into(),
+                alias: Some("gg".into())
+            },
+            Channel {
+                id: "8b3e8e3a13201cff0836c69cfab62f45".into(),
+                alias: Some("flame".into())
+            },
+            Channel {
+                id: "6cac96d5c9b7a9fd28903aa32fc61749".into(),
+                alias: Some("hd".into())
+            },
+            Channel {
+                id: "bc2dbff369307b5c446224cce192c8b1".into(),
+                alias: Some("goarosa".into())
+            },
+            Channel {
+                id: "732f6f16d20991243ec3f2d7afed8821".into(),
+                alias: Some("0du".into())
+            },
+            Channel {
+                id: "96e44e40a448971244bfd9dd8c832505".into(),
+                alias: Some("gn".into())
+            },
         ],
     };
     let cfg = Arc::new(cfg);
