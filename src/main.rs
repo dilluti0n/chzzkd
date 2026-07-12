@@ -1,10 +1,9 @@
-use serde;
 use serde::Deserialize;
 use std::time::Duration;
 use std::sync::Arc;
 use std::fmt;
 use rand::RngExt;
-use log::{debug, warn, trace};
+use log::{info, debug, warn, trace};
 
 #[derive(Deserialize, Debug)]
 struct PollRes {
@@ -18,6 +17,30 @@ enum Status {
     Close,
     #[serde(other)]
     Unknown,
+}
+
+enum Transition {
+    WentOpen,
+    WentClose,
+    RecoveredOpen,
+    /// self-loop or unknown involved
+    Nop(Status, Status),
+}
+
+impl Status {
+    fn transition_from(self, prev: Status) -> Transition {
+        use Status::*;
+        use Transition::*;
+
+        match (prev, self) {
+            (Close, Open) => WentOpen,
+            (Unknown, Open) => RecoveredOpen,
+            (Open, Close) => WentClose,
+
+            // no useful information given to user
+            (_, _) => Nop(prev, self),
+        }
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -55,24 +78,54 @@ impl Channel {
     }
 
     pub async fn event_loop(&self, client: &reqwest::Client, timeout: u64) {
-        use tokio::time::sleep;
-
-        let name = self.to_string();
-        let mut errs = 0u32;
+        // Receive notifications for already opened broadcasts when first run
+        let mut prev = Status::Close;
+        let mut errs = 0;
 
         loop {
-            match self.fetch(&client).await {
-                Ok(res) => {
-                    trace!("{name}: {res:?}");
-                }
-                Err(e) => {
-                    errs = errs.saturating_add(1);
-                    warn!("{name}: fetch failed (x{errs}): {e:#}");
-                }
-            }
+            (prev, errs) = self.tick(client, prev, errs).await;
             let phase = jittered(timeout, errs);
-            debug!("{name}: sleep for {phase:?}");
-            sleep(phase).await;
+            debug!("{self}: sleep for {phase:?}");
+            tokio::time::sleep(phase).await;
+        }
+    }
+
+    async fn tick(
+        &self,
+        client: &reqwest::Client, prev: Status, errs: u32
+    ) -> (Status, u32) {
+        match self.fetch(client).await {
+            Ok(res) => {
+                trace!("{self}: {res:?}");
+                let content = match res.content {
+                    Some(c) => c,
+                    None => return (prev, errs)
+                };
+
+                self.event(prev, &content);
+
+                (content.status, 0)
+            }
+            Err(e) => {
+                let errs = errs.saturating_add(1);
+                warn!("{self}: fetch failed (x{}): {e:#}", errs);
+
+                (prev, errs)
+            }
+        }
+    }
+
+    fn event(&self, prev: Status, content: &PollResContent) {
+        match content.status.transition_from(prev) {
+            Transition::WentOpen | Transition::RecoveredOpen => {
+                info!("{self}: WentOpen: {}", content.live_title.as_deref().unwrap_or("None"));
+            },
+            Transition::WentClose => {
+                info!("{self}: WentClose: {}", content.live_title.as_deref().unwrap_or("None"));
+            },
+            Transition::Nop(prev, curr) => {
+                trace!("{self}: Nop: {prev:?} => {curr:?}");
+            }
         }
     }
 }
