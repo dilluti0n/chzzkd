@@ -4,6 +4,7 @@ use std::time::Duration;
 use std::sync::Arc;
 use std::fmt;
 use rand::RngExt;
+use log::{debug, warn, trace};
 
 #[derive(Deserialize, Debug)]
 struct PollRes {
@@ -77,21 +78,23 @@ async fn watch(cfg: Arc<Config>, idx: usize, client: reqwest::Client) {
     loop {
         match fetch(&client, ch).await {
             Ok(res) => {
-                eprintln!("{name}: {res:?}");
+                trace!("{name}: {res:?}");
             }
             Err(e) => {
                 errs = errs.saturating_add(1);
-                eprintln!("{name}: fetch failed (x{errs}): {e:#}");
+                warn!("{name}: fetch failed (x{errs}): {e:#}");
             }
         }
         let phase = jittered(cfg.timeout, errs);
-        eprintln!("{name}: sleep for {phase:?}");
+        debug!("{name}: sleep for {phase:?}");
         sleep(phase).await;
     }
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    env_logger::init();
+
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0")
         .build()?;
