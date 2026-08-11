@@ -1,13 +1,15 @@
 use serde::Deserialize;
-use std::fs;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::env;
 use std::io;
 use std::time::Duration;
 use std::sync::Arc;
 use std::fmt;
 use rand::RngExt;
-use log::{info, debug, warn, trace};
+use log::{info, debug, warn, trace, error};
+
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::task::JoinSet;
 
 #[derive(Deserialize, Debug)]
 struct PollRes {
@@ -257,9 +259,24 @@ fn resolve_cfg_path() -> Result<PathBuf, io::Error> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no config file found"))
 }
 
+fn load_cfg(path: &Path) -> anyhow::Result<Arc<Config>> {
+    let s = std::fs::read_to_string(path)?;
+    Ok(Arc::new(toml::from_str::<Config>(&s)?))
+}
+
+fn spawn_all(cfg: &Arc<Config>, client: &reqwest::Client) -> JoinSet<()> {
+    let mut set = JoinSet::new();
+    for i in 0..cfg.channel.len() {
+        set.spawn(watch(cfg.clone(), i, client.clone()));
+    }
+    set
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
+
+    let mut hup = signal(SignalKind::hangup())?;
 
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0")
@@ -268,22 +285,33 @@ async fn main() -> anyhow::Result<()> {
     let cfg_path = resolve_cfg_path()?;
     info!("Found config {:?}, using it", cfg_path);
 
-    let cfg = {
-        let s = fs::read_to_string(&cfg_path)?;
-        Arc::new(toml::from_str::<Config>(&s)?)
-    };
+    let mut cfg = load_cfg(&cfg_path)?;
+    let mut tasks = spawn_all(&cfg, &client);
 
-    let mut tasks = Vec::new();
-
-    for i in 0..cfg.channel.len() {
-        tasks.push(tokio::spawn(watch(cfg.clone(), i, client.clone())));
+    loop {
+        tokio::select! {
+            _ = hup.recv() => {
+                match load_cfg(&cfg_path) {
+                    Ok(new_cfg) => {
+                        info!("Received SIGHUP: reloading {} channels", new_cfg.channel.len());
+                        tasks.shutdown().await;
+                        cfg = new_cfg;
+                        tasks = spawn_all(&cfg, &client);
+                    }
+                    Err(e) => {
+                        warn!("Received SIGHUP: reload failed, keeping running config: {e:#}");
+                    }
+                }
+            }
+            Some(res) = tasks.join_next() => {
+                match res {
+                    Ok(()) => warn!("watcher exited unexpectedly"),
+                    Err(e) if e.is_cancelled() => {}
+                    Err(e) => error!("watcher panicked: {e}"),
+                }
+            }
+        }
     }
-
-    for t in tasks {
-        t.await?;
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
