@@ -72,6 +72,9 @@ chzzkd
 # Run as daemon
 RUST_LOG=info setsid chzzkd 2>chzzkd.log >/dev/null
 
+# Reload configuration
+pkill -HUP chzzkd
+
 # Stop daemon
 pkill chzzkd
 ```
