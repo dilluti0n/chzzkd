@@ -70,7 +70,7 @@ cp example_config.toml "$HOME/.config/chzzkd/config.toml"
 chzzkd
 
 # Run as daemon
-RUST_LOG=info setsid chzzkd 2>chzzkd.log
+RUST_LOG=info setsid chzzkd 2>chzzkd.log >/dev/null
 
 # Stop daemon
 pkill chzzkd
