@@ -60,20 +60,26 @@ opens the popup chat window for the channel. :)
 
 ---
 
-How to run:
+How to install and run:
 ```sh
 git clone https://github.com/dilluti0n/chzzkd
 cd chzzkd
 cargo install --path .
-chzzkd < config.toml
+mkdir -p "$HOME/.config/chzzkd/"
+cp example_config.toml "$HOME/.config/chzzkd/config.toml"
+chzzkd
 
 # Run as daemon
-RUST_LOG=info setsid chzzkd < config.toml >/dev/null 2>chzzkd.log
+RUST_LOG=info setsid chzzkd 2>chzzkd.log
 
 # Stop daemon
 pkill chzzkd
 ```
 
-Currently, configuration is read from stdin. The first release will
-replace it with a default config file (such as `/etc/chzzkd.toml`) and
-a command-line override.
+Synopsis: `chzzkd [CONFIG]`
+
+Configuration path precedence:
+  1. `CONFIG` (command line argument)
+  2. $XDG_CONFIG_HOME/chzzkd/config.toml
+  3. $HOME/.config/chzzkd/config.toml
+  4. /etc/chzzkd/config.toml

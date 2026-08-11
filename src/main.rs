@@ -1,4 +1,8 @@
 use serde::Deserialize;
+use std::fs;
+use std::path::PathBuf;
+use std::env;
+use std::io;
 use std::time::Duration;
 use std::sync::Arc;
 use std::fmt;
@@ -221,6 +225,38 @@ async fn watch(cfg: Arc<Config>, idx: usize, client: reqwest::Client) {
     ch.event_loop(&client, cfg.timeout, &cfg.hooks).await;
 }
 
+/// Resolves config file path. Precedence:
+///   1. argv[1]
+///   2. $XDG_CONFIG_HOME/chzzkd/config.toml
+///   3. $HOME/.config/chzzkd/config.toml
+///   4. /etc/chzzkd/config.toml
+fn resolve_cfg_path() -> Result<PathBuf, io::Error> {
+    if let Some(arg) = env::args_os().nth(1) {
+        let p = PathBuf::from(arg);
+        return if p.is_file() {
+            Ok(p)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("{}: no such config file", p.display()),
+            ))
+        };
+    }
+
+    let xdg = env::var_os("XDG_CONFIG_HOME")
+        .filter(|s| !s.is_empty())
+        .map(|d| PathBuf::from(d).join("chzzkd/config.toml"));
+    let home = env::var_os("HOME")
+        .filter(|s| !s.is_empty())
+        .map(|h| PathBuf::from(h).join(".config/chzzkd/config.toml"));
+
+    xdg.into_iter()
+        .chain(home)
+        .chain(std::iter::once(PathBuf::from("/etc/chzzkd/config.toml")))
+        .find(|p| p.is_file())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no config file found"))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
@@ -229,11 +265,11 @@ async fn main() -> anyhow::Result<()> {
         .user_agent("Mozilla/5.0")
         .build()?;
 
-    let cfg = {
-        use std::io::Read;
+    let cfg_path = resolve_cfg_path()?;
+    info!("Found config {:?}, using it", cfg_path);
 
-        let mut s = String::new();
-        std::io::stdin().read_to_string(&mut s)?;
+    let cfg = {
+        let s = fs::read_to_string(&cfg_path)?;
         Arc::new(toml::from_str::<Config>(&s)?)
     };
 
