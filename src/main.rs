@@ -218,12 +218,8 @@ fn jittered(timeout: u64, errs: u32) -> Duration {
 }
 
 async fn watch(cfg: Arc<Config>, idx: usize, client: reqwest::Client) {
-    use tokio::time::sleep;
-
     let ch = &cfg.channel[idx];
-    let phase = Duration::from_secs_f64(rand::rng().random_range(0.0..cfg.timeout as f64));
 
-    sleep(phase).await;
     ch.event_loop(&client, cfg.timeout, &cfg.hooks).await;
 }
 
