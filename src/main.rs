@@ -25,44 +25,25 @@ enum Status {
     Unknown,
 }
 
-macro_rules! define_hooks {
-    (
-        enum $ename:ident {
-            $( $var:ident $( { $($f:tt)* } )? => $field:ident, )*
-        }
-        passthrough {
-            $( $extra:tt )*
-        }
-    ) => {
-        enum $ename {
-            $( $var $( { $($f)* } )? , )*
-            $( $extra )*
-        }
-
-        #[derive(Debug, Default, Deserialize)]
-        struct Hooks {
-            $( $field: Option<String>, )*
-        }
-
-        impl Hooks {
-            fn script(&self, t: &$ename) -> Option<&str> {
-                #[allow(unreachable_patterns)]
-                match t {
-                    $( $ename::$var { .. } => self.$field.as_deref(), )*
-                    _ => None,
-                }
-            }
-        }
-    };
+enum Transition {
+    WentOpen { recovered: bool },
+    WentClose,
+    Nop { prev: Status, curr: Status },
 }
 
-define_hooks! {
-    enum Transition {
-        WentOpen { recovered: bool } => went_open,
-        WentClose => went_close,
-    }
-    passthrough {
-        Nop { prev: Status, curr: Status },
+#[derive(Deserialize, Default)]
+struct Hooks {
+    went_open: Option<String>,
+    went_close: Option<String>
+}
+
+impl Hooks {
+    fn script(&self, t: &Transition) -> Option<&str> {
+        match t {
+            Transition::WentOpen { .. } => self.went_open.as_deref(),
+            Transition::WentClose => self.went_close.as_deref(),
+            _ => None,
+        }
     }
 }
 
