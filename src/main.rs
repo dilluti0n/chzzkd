@@ -257,6 +257,7 @@ async fn main() -> anyhow::Result<()> {
 
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0")
+        .timeout(Duration::from_secs(5))
         .build()?;
 
     let cfg_path = resolve_cfg_path()?;
